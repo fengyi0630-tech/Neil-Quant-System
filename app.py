@@ -51,13 +51,12 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<p class="main-title">NEIL QUANT | 核心決策引擎</p>', unsafe_allow_html=True)
+st.markdown('<p class="main-title">NEIL QUANT | 核心決策引擎 (長線版)</p>', unsafe_allow_html=True)
 st.markdown(f'<p class="sub-title">系統最新同步時間：{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>', unsafe_allow_html=True)
 
-# ================= 3. 核心運算邏輯 (保持強大) =================
+# ================= 3. 核心運算邏輯 (長線投資策略) =================
 @st.cache_data(ttl=3600)
 def fetch_and_analyze():
-    # 改用 yf.Ticker().history() 更加穩定，避開 download 的跑版問題
     try:
         twii = yf.Ticker('^TWII').history(period='3mo')
         if twii.empty:
@@ -66,7 +65,7 @@ def fetch_and_analyze():
             close = twii['Close']
             ma20 = close.rolling(window=20).mean()
             is_market_safe = float(close.iloc[-1]) >= float(ma20.iloc[-1])
-            market_msg = f"加權指數站穩月線 ({float(ma20.iloc[-1]):.0f})" if is_market_safe else "加權指數跌破月線，啟動防禦"
+            market_msg = f"加權指數站穩月線 ({float(ma20.iloc[-1]):.0f})" if is_market_safe else "大盤弱勢，適合長線分批撿便宜"
     except Exception as e:
         is_market_safe, market_msg = True, f"大盤連線異常: {e}"
 
@@ -79,7 +78,6 @@ def fetch_and_analyze():
             if df.empty:
                 raise ValueError("查無歷史資料")
             
-            # 計算指標
             df['MA20'] = df['Close'].rolling(window=20).mean()
             direction = np.sign(df['Close'].diff())
             df['OBV'] = (df['Volume'] * direction).fillna(0).cumsum()
@@ -92,54 +90,61 @@ def fetch_and_analyze():
             score, signals = 0, []
             
             bias = (latest_close - float(latest['MA20'])) / float(latest['MA20']) * 100
-            if 0 < bias <= 5: score += 30; signals.append("安全乖離")
-            elif bias < -10: score += 30; signals.append("超跌反彈")
-            elif bias > 15: score -= 20; signals.append("過熱風險")
             
-            # OBV 吃貨邏輯
+            if bias < -15: 
+                score += 50; signals.append("極度超跌(甜甜價)")
+            elif bias < -5: 
+                score += 30; signals.append("回檔修正")
+            elif 0 < bias <= 5: 
+                score += 20; signals.append("合理區間")
+            elif bias > 15: 
+                score -= 20; signals.append("乖離過大(勿追高)")
+            
             if (float(df['Price_20d_Change'].iloc[-1]) <= 0.02) and (float(df['OBV'].iloc[-1]) >= float(df['OBV_20d_Max'].iloc[-1])) and (float(df['Volume'].iloc[-1]) > float(df['Vol_MA5'].iloc[-1])):
                 score += 40; signals.append("🚨 主力潛伏")
                 
             if not is_market_safe:
-                score = int(score * 0.6)
-                signals.append("⚠️ 防禦降評")
+                score = int(score * 0.8) 
                 
-            if not signals: signals.append("無動能")
+            if not signals: signals.append("動能平穩")
             
-            # 決策計算
             pl_pct = ((latest_close - info['cost']) / info['cost'] * 100) if info['cost'] > 0 else 0
-            if info['shares'] > 0 and pl_pct <= -8.0:
-                action, sizing = "🛑 強制停損", "清空部位"
-            elif score >= 60:
-                action, sizing = "🟢 建議作多", "15%~30%"
+            
+            if score >= 60:
+                action, sizing = "🟢 積極加碼", "逢低建立部位"
             elif 40 <= score < 60:
-                action, sizing = "🔄 區間觀望", "維持現狀"
+                if bias < 0:
+                    action, sizing = "🔄 分批零股", "定期定額買進"
+                else:
+                    action, sizing = "☕ 抱緊處理", "維持既有部位"
             else:
-                action, sizing = "💰 準備減碼", "分批了結"
+                if info['shares'] > 0 and pl_pct > 20:
+                    action, sizing = "💰 停利入袋", "可考慮收回本金"
+                else:
+                    action, sizing = "☕ 耐心觀望", "暫不投入新資金"
                 
             results.append({
-                'Ticker': ticker.replace('.TW', ''),
-                'Price': round(latest_close, 2),
-                'Cost': info['cost'] if info['cost'] > 0 else '-',
-                'P/L(%)': round(pl_pct, 2) if info['cost'] > 0 else '-',
-                'Score': score,
-                'Signals': " | ".join(signals),
-                'Action': action,
-                'Size': sizing
+                '股票代號': ticker.replace('.TW', ''),
+                '目前股價': round(latest_close, 2),
+                '買進成本': info['cost'] if info['cost'] > 0 else '-',
+                '帳面損益(%)': round(pl_pct, 2) if info['cost'] > 0 else '-',
+                '動能總分': score,
+                '觸發訊號': " | ".join(signals),
+                '操作建議': action,
+                '部位規模建議': sizing
             })
             charts_data[ticker.replace('.TW', '')] = df.tail(60) 
             
         except Exception as e:
-            # 將錯誤攔截並顯示在畫面上，不再默默失敗
             results.append({
-                'Ticker': ticker.replace('.TW', ''),
-                'Price': 0,
-                'Cost': info['cost'] if info['cost'] > 0 else '-',
-                'P/L(%)': '-',
-                'Score': 0,
-                'Signals': f"錯誤: {str(e)}",
-                'Action': "無法分析",
-                'Size': "0%"
+                '股票代號': ticker.replace('.TW', ''),
+                '目前股價': 0,
+                '買進成本': info['cost'] if info['cost'] > 0 else '-',
+                '帳面損益(%)': '-',
+                '動能總分': 0,
+                '觸發訊號': f"錯誤: {str(e)}",
+                '操作建議': "無法分析",
+                '部位規模建議': "暫停操作"
             })
             
     return is_market_safe, market_msg, pd.DataFrame(results), charts_data
@@ -148,31 +153,34 @@ with st.spinner('連線至交易所取得即時行情...'):
     is_market_safe, market_msg, result_df, charts_data = fetch_and_analyze()
 
 # ================= 4. 戰情總覽儀表板 =================
-st.markdown("### 🌐 總體市場環境 (Macro Environment)")
+st.markdown("### 🌐 總體市場環境")
 c1, c2, c3, c4 = st.columns(4)
 with c1:
-    st.markdown(f'<div class="metric-card"><h4>大盤濾網</h4><h2 style="color: {"#00C853" if is_market_safe else "#FF1744"}">{"🟢 安全" if is_market_safe else "🔴 警戒"}</h2><p>{market_msg}</p></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><h4>大盤濾網</h4><h2 style="color: {"#00C853" if is_market_safe else "#FFEA00"}">{"🟢 趨勢向上" if is_market_safe else "🟡 修正盤整"}</h2><p>{market_msg}</p></div>', unsafe_allow_html=True)
 with c2:
-    bullish = len(result_df[result_df['Score'] >= 60]) if not result_df.empty else 0
-    st.markdown(f'<div class="metric-card"><h4>系統建議作多標的</h4><h2>{bullish} 檔</h2><p>動存總分 >= 60</p></div>', unsafe_allow_html=True)
+    bullish = len(result_df[result_df['動能總分'] >= 60]) if not result_df.empty else 0
+    st.markdown(f'<div class="metric-card"><h4>適合建倉標的</h4><h2>{bullish} 檔</h2><p>超跌或具備主力動能</p></div>', unsafe_allow_html=True)
 with c3:
-    st.markdown(f'<div class="metric-card"><h4>演算法狀態</h4><h2 style="color: #00B0FF">正常運作</h2><p>OBV/乖離率 模組上線</p></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><h4>投資策略</h4><h2 style="color: #00B0FF">長線價值投資</h2><p>跌深買進、高檔調節</p></div>', unsafe_allow_html=True)
 with c4:
-     st.markdown(f'<div class="metric-card"><h4>風控模組</h4><h2 style="color: #FFEA00">已啟動</h2><p>-8% 絕對停損保護</p></div>', unsafe_allow_html=True)
+     st.markdown(f'<div class="metric-card"><h4>風控模組</h4><h2 style="color: #00C853">資產配置</h2><p>無停損機制，著重資金分批</p></div>', unsafe_allow_html=True)
 
 st.write("---")
 
 # ================= 5. 量化決策矩陣 (表格) =================
-st.markdown("### 📊 量化決策矩陣 (Quantitative Matrix)")
+st.markdown("### 📊 量化決策矩陣")
 
 if not result_df.empty:
     def highlight_matrix(row):
-        if row['Score'] >= 60: return ['background-color: rgba(0, 200, 83, 0.15)'] * len(row)
-        if '停損' in row['Action'] or '減碼' in row['Action'] or '錯誤' in row['Action']: return ['background-color: rgba(255, 23, 68, 0.15)'] * len(row)
+        if row['動能總分'] >= 60: return ['background-color: rgba(0, 200, 83, 0.15)'] * len(row)
+        if '停利' in row['操作建議']: return ['background-color: rgba(255, 152, 0, 0.15)'] * len(row)
         return [''] * len(row)
 
-    # 針對沒有錯誤的行進行數字格式化，有錯誤的行直接顯示
-    styled_df = result_df.style.apply(highlight_matrix, axis=1)
+    styled_df = result_df.style.apply(highlight_matrix, axis=1).format({
+        '目前股價': "{:.2f}",
+        '買進成本': lambda x: f"{x:.2f}" if isinstance(x, (int, float)) else x,
+        '帳面損益(%)': lambda x: f"{x:.2f}%" if isinstance(x, (int, float)) else x
+    })
     st.dataframe(styled_df, use_container_width=True, height=250)
 else:
     st.warning("無數據")
@@ -180,7 +188,7 @@ else:
 st.write("---")
 
 # ================= 6. 專業級機構圖表 =================
-st.markdown("### 📈 動能深度解析 (Deep Dive Analysis)")
+st.markdown("### 📈 動能深度解析")
 st.caption("以下圖表展示近 60 日 K 線與 OBV 籌碼動能疊加圖")
 
 if not result_df.empty and charts_data:
