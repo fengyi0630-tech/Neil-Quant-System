@@ -1,5 +1,9 @@
-streamlit
-pandas
-yfinance
-plotly
-numpy
+streamlit==1.64.0
+pandas==2.2.3
+numpy==2.3.5
+plotly==7.1.0
+yfinance==1.7.0
+openai==3.16.2
+SQLAlchemy==2.0.54
+psycopg[binary]==3.3.6
+tzdata==2026.3
